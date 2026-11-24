@@ -1,57 +1,51 @@
 import { FilesetResolver, PoseLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
 
-const video = document.getElementById("video");
-const canvas = document.getElementById("overlay");
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+const canvas = $("overlay");
 const ctx = canvas.getContext("2d");
-const startBtn = document.getElementById("startBtn");
-const stopBtn = document.getElementById("stopBtn");
-const calibrateBtn = document.getElementById("calibrateBtn");
-const placeholder = document.getElementById("placeholder");
-const cameraState = document.getElementById("cameraState");
-const message = document.getElementById("message");
-const statusText = document.getElementById("statusText");
-const statusDetail = document.getElementById("statusDetail");
-const scoreEl = document.getElementById("score");
-const scoreBar = document.getElementById("scoreBar");
-const tipText = document.getElementById("tipText");
-const statusCard = document.getElementById("statusCard");
 
-let landmarker = null;
-let stream = null;
+let landmarker;
+let stream;
 let running = false;
-let rafId = null;
+let raf = 0;
 let lastVideoTime = -1;
-let badSince = null;
-let lastReminder = 0;
 let calibration = null;
 let calibrationSamples = [];
 let calibrating = false;
-let lastSpoken = "";
-let lastStatus = "WAITING";
+let calibrationStarted = 0;
+let poorSince = null;
+let lastAlert = 0;
+let lastVoice = "";
 
-const LEFT_SHOULDER = 11, RIGHT_SHOULDER = 12;
-const LEFT_EAR = 7, RIGHT_EAR = 8;
-const NOSE = 0;
+const modeSelect = $("viewMode");
+const startBtn = $("startBtn");
+const stopBtn = $("stopBtn");
+const calibrateBtn = $("calibrateBtn");
 
-function setStatus(title, detail, score, tip) {
-  statusText.textContent = title;
-  statusDetail.textContent = detail;
-  scoreEl.textContent = score == null ? "--" : Math.round(score);
-  scoreBar.style.width = score == null ? "0%" : `${Math.max(0, Math.min(100, score))}%`;
-  tipText.textContent = tip;
-  lastStatus = title;
+const say = (title, detail, score = null, tip = "") => {
+  $("statusText").textContent = title;
+  $("statusDetail").textContent = detail;
+  $("score").textContent = score === null ? "—" : Math.round(score);
+  $("scoreBar").style.width = score === null ? "0%" : `${Math.max(0, Math.min(100, score))}%`;
+  $("tipText").textContent = tip;
+};
+
+const avg = (values) => {
+  const good = values.filter(Number.isFinite);
+  return good.length ? good.reduce((a, b) => a + b, 0) / good.length : NaN;
+};
+
+function isVisible(point, threshold = 0.4) {
+  return point && (point.visibility ?? 1) >= threshold;
 }
 
-function visible(point, minimum = 0.45) {
-  return point && (point.visibility ?? 1) >= minimum;
-}
-
-function midpoint(a, b) {
+function mid(a, b) {
   return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
 async function loadModel() {
-  message.textContent = "Loading the posture model…";
+  $("message").textContent = "Loading the pose model…";
   const vision = await FilesetResolver.forVisionTasks(
     "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
   );
@@ -62,9 +56,9 @@ async function loadModel() {
     },
     runningMode: "VIDEO",
     numPoses: 1,
-    minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5
+    minPoseDetectionConfidence: 0.45,
+    minPosePresenceConfidence: 0.45,
+    minTrackingConfidence: 0.45
   });
 }
 
@@ -79,42 +73,40 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
     running = true;
-    placeholder.style.display = "none";
-    cameraState.textContent = "CAMERA ON";
-    cameraState.style.background = "#eff8e7";
-    cameraState.style.color = "#648c35";
+    $("placeholder").style.display = "none";
+    $("cameraState").classList.add("on");
+    $("cameraState").innerHTML = "<i></i> Camera on";
     startBtn.disabled = true;
     stopBtn.disabled = false;
     calibrateBtn.disabled = false;
-    message.textContent = "Keep your face and both shoulders in view. Hips are not needed.";
+    $("message").textContent = "Keep your face and shoulders in frame. Hips are not used.";
     resizeCanvas();
-    detectFrame();
+    loop();
   } catch (error) {
     console.error(error);
     startBtn.disabled = false;
-    message.textContent = error.name === "NotAllowedError"
-      ? "Camera permission was blocked. Allow camera access in your browser settings and try again."
-      : "Could not start the camera. Use HTTPS or localhost and check that another app is not using it.";
+    $("message").textContent = error.name === "NotAllowedError"
+      ? "Camera permission was blocked. Allow it in your browser settings and try again."
+      : "Could not start the camera. Use HTTPS or localhost and check camera access.";
   }
 }
 
 function stopCamera() {
   running = false;
-  if (rafId) cancelAnimationFrame(rafId);
-  if (stream) stream.getTracks().forEach(track => track.stop());
+  cancelAnimationFrame(raf);
+  if (stream) stream.getTracks().forEach(t => t.stop());
   stream = null;
   video.srcObject = null;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  placeholder.style.display = "block";
-  cameraState.textContent = "CAMERA OFF";
-  cameraState.style.background = "";
-  cameraState.style.color = "";
+  $("placeholder").style.display = "flex";
+  $("cameraState").classList.remove("on");
+  $("cameraState").innerHTML = "<i></i> Not started";
   startBtn.disabled = false;
   stopBtn.disabled = true;
   calibrateBtn.disabled = true;
-  badSince = null;
-  message.textContent = "Camera stopped.";
-  setStatus("Waiting", "Start the camera to begin checking your upper-body posture.", null, "Sit comfortably, then start a calibration.");
+  poorSince = null;
+  say("Waiting for camera", "Start the camera and calibrate in a comfortable position.");
+  $("message").textContent = "Camera stopped.";
 }
 
 function resizeCanvas() {
@@ -124,172 +116,207 @@ function resizeCanvas() {
   canvas.height = Math.round(rect.height * dpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-
 window.addEventListener("resize", resizeCanvas);
 
-function drawPoint(point, color = "#b9f36b") {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
+function px(point) {
+  return { x: (1 - point.x) * canvas.clientWidth, y: point.y * canvas.clientHeight };
+}
+function dot(point, color = "#f0a17d") {
+  const p = px(point);
   ctx.beginPath();
-  ctx.arc((1 - point.x) * w, point.y * h, 5, 0, Math.PI * 2);
+  ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
   ctx.fillStyle = color;
   ctx.fill();
 }
-
-function drawLine(a, b, color = "#b9f36b") {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
+function line(a, b) {
+  const p1 = px(a), p2 = px(b);
   ctx.beginPath();
-  ctx.moveTo((1 - a.x) * w, a.y * h);
-  ctx.lineTo((1 - b.x) * w, b.y * h);
-  ctx.strokeStyle = color;
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.strokeStyle = "#f0a17d";
   ctx.lineWidth = 3;
   ctx.stroke();
 }
 
-function analyze(landmarks) {
-  const leftShoulder = landmarks[LEFT_SHOULDER];
-  const rightShoulder = landmarks[RIGHT_SHOULDER];
-  const nose = landmarks[NOSE];
+// Front view checks shoulder level and head centering.
+// Side view checks how far the visible ear sits ahead of the shoulder.
+// Neither mode reads hip landmarks.
+function getMeasurements(lm, mode) {
+  const ls = lm[11], rs = lm[12], nose = lm[0];
+  if (!isVisible(ls, 0.4) || !isVisible(rs, 0.4)) return null;
 
-  // Hips are deliberately not checked. Only the face and shoulder area are required.
-  if (!visible(leftShoulder, 0.4) || !visible(rightShoulder, 0.4)) {
-    badSince = null;
-    setStatus("Move into view", "Please show your face and both shoulders. Your hips can stay outside the frame.", null, "Adjust the camera so your upper body is visible.");
+  const shoulders = mid(ls, rs);
+  const shoulderWidth = Math.max(0.04, Math.abs(ls.x - rs.x));
+  const shoulderTilt = Math.abs(ls.y - rs.y) / shoulderWidth;
+
+  if (mode === "front") {
+    if (!isVisible(nose, 0.35)) return null;
+    const headCenter = nose.x;
+    return {
+      primary: (headCenter - shoulders.x) / shoulderWidth,
+      secondary: shoulderTilt,
+      points: [ls, rs, nose],
+      mode
+    };
+  }
+
+  const ears = [lm[7], lm[8]].filter(e => isVisible(e, 0.35));
+  if (!ears.length || !isVisible(nose, 0.35)) return null;
+  const ear = ears.sort((a, b) => (b.visibility ?? 1) - (a.visibility ?? 1))[0];
+  const shoulder = [ls, rs].sort((a, b) => Math.abs(a.x - ear.x) - Math.abs(b.x - ear.x))[0];
+
+  // Direction from ear toward nose tells us which way the person is facing.
+  const facing = Math.sign(nose.x - ear.x) || 1;
+  const verticalScale = Math.max(0.06, Math.abs(ear.y - shoulder.y));
+  const forwardHead = ((ear.x - shoulder.x) * facing) / verticalScale;
+
+  return {
+    primary: forwardHead,
+    secondary: null,
+    points: [ear, shoulder, nose],
+    mode
+  };
+}
+
+function drawMeasurements(m) {
+  ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+  m.points.forEach(p => dot(p));
+  if (m.mode === "front") line(m.points[0], m.points[1]);
+  else line(m.points[0], m.points[1]);
+}
+
+function beginCalibration() {
+  calibrationSamples = [];
+  calibrating = true;
+  calibrationStarted = Date.now();
+  poorSince = null;
+  $("message").textContent = "Stay in a comfortable position for about two seconds…";
+}
+
+function analyze(lm) {
+  const mode = modeSelect.value;
+  const m = getMeasurements(lm, mode);
+
+  if (!m) {
+    poorSince = null;
+    say("Move into view", "Show your face and both shoulders. In side view, keep the nearer ear visible.", null,
+      "Move the camera a little farther back or improve the lighting.");
     return;
   }
+  drawMeasurements(m);
 
-  const shoulders = midpoint(leftShoulder, rightShoulder);
-  const shoulderWidth = Math.max(0.05, Math.abs(leftShoulder.x - rightShoulder.x));
-  const shoulderTilt = Math.abs(leftShoulder.y - rightShoulder.y) / shoulderWidth;
-
-  if (visible(nose, 0.35)) {
-    drawLine(nose, shoulders, "#b9f36b");
-    drawPoint(nose);
-  }
-  drawPoint(leftShoulder);
-  drawPoint(rightShoulder);
-  drawLine(leftShoulder, rightShoulder);
-
-  const earLeft = landmarks[LEFT_EAR], earRight = landmarks[RIGHT_EAR];
-  let headOffset = null;
-  if (visible(earLeft, 0.35) && visible(earRight, 0.35)) {
-    const ears = midpoint(earLeft, earRight);
-    headOffset = Math.abs(ears.x - shoulders.x) / shoulderWidth;
-  } else if (visible(nose, 0.35)) {
-    headOffset = Math.abs(nose.x - shoulders.x) / shoulderWidth;
-  }
-
-  const features = { shoulderTilt, headOffset };
   if (calibrating) {
-    calibrationSamples.push(features);
-    const elapsed = Date.now() - calibrationStartedAt;
-    message.textContent = `Calibrating… keep a comfortable upright position (${Math.min(2, elapsed / 1000).toFixed(1)}s)`;
-    if (elapsed >= 2000 && calibrationSamples.length >= 10) {
+    calibrationSamples.push({ primary: m.primary, secondary: m.secondary });
+    const elapsed = Date.now() - calibrationStarted;
+    say("Calibrating…", "Stay in your normal, comfortable position for a moment.");
+    if (elapsed >= 2200 && calibrationSamples.length >= 8) {
       calibration = {
-        shoulderTilt: average(calibrationSamples.map(s => s.shoulderTilt)),
-        headOffset: average(calibrationSamples.map(s => s.headOffset).filter(Number.isFinite))
+        mode,
+        primary: avg(calibrationSamples.map(x => x.primary)),
+        secondary: mode === "front" ? avg(calibrationSamples.map(x => x.secondary)) : null
       };
       calibrating = false;
-      message.textContent = "Calibration saved. Posture checks are now relative to your starting position.";
-      calibrationSamples = [];
+      $("message").textContent = "Calibration saved. PostureX is comparing your position with this baseline.";
     }
-    setStatus("Calibrating", "Stay in your comfortable upright position for a moment.", null, "Calibration helps the system compare your posture with your own baseline.");
     return;
   }
 
-  if (!calibration) {
-    setStatus("Ready to calibrate", "Your upper body is visible. Sit comfortably and press Calibrate posture.", null, "Calibration takes about two seconds and uses only your face and shoulders.");
+  if (!calibration || calibration.mode !== mode) {
+    poorSince = null;
+    say("Ready to calibrate", `You're in ${mode} view. Press Calibrate before starting the check.`, null,
+      "Calibration gives PostureX a starting point for your normal posture.");
     return;
   }
 
-  const tiltChange = Math.max(0, shoulderTilt - calibration.shoulderTilt);
-  const headChange = headOffset == null || !Number.isFinite(calibration.headOffset)
-    ? 0 : Math.max(0, headOffset - calibration.headOffset);
+  const primaryChange = Math.abs(m.primary - calibration.primary);
+  const secondaryChange = mode === "front" ? Math.max(0, m.secondary - calibration.secondary) : 0;
 
-  let issue = "";
-  let detail = "Your upper-body position is close to your calibrated baseline.";
-  let tip = "Keep your shoulders relaxed and take regular movement breaks.";
-  let penalty = 0;
+  // Smooth, continuous score: even small deviations affect the score.
+  const primaryPenalty = Math.min(55, primaryChange * (mode === "front" ? 125 : 42));
+  const secondaryPenalty = Math.min(35, secondaryChange * 75);
+  const score = Math.max(35, Math.min(100, 100 - primaryPenalty - secondaryPenalty));
 
-  if (headChange > 0.10) {
-    issue = "Head position";
-    detail = "Your head appears to have shifted forward or sideways compared with calibration.";
-    tip = "Gently bring your head back over your shoulders without forcing your neck.";
-    penalty += Math.min(35, (headChange - 0.10) * 180);
+  const primaryLimit = mode === "front" ? 0.075 : 0.16;
+  const secondaryLimit = 0.12;
+  const hasIssue = primaryChange > primaryLimit || secondaryChange > secondaryLimit;
+
+  let title = "Looking steady";
+  let detail = "Your position is close to the one you calibrated.";
+  let tip = "Looks steady. Remember to take a short movement break now and then.";
+
+  if (mode === "front" && secondaryChange > secondaryLimit) {
+    title = "Shoulders look uneven";
+    detail = "Your shoulder line has changed compared with your starting position.";
+    tip = "Let your shoulders relax and check that you're not leaning to one side.";
+  } else if (primaryChange > primaryLimit && mode === "front") {
+    title = "Head has shifted";
+    detail = "Your head position has moved sideways from your calibrated position.";
+    tip = "Bring your head back to a comfortable, centred position.";
+  } else if (primaryChange > primaryLimit && mode === "side") {
+    title = "Head moving forward";
+    detail = "Your ear is sitting farther forward relative to your shoulder than at calibration.";
+    tip = "Gently bring your head back over your shoulder. Don't force your neck.";
   }
-  if (tiltChange > 0.10) {
-    issue = issue ? "Adjust your posture" : "Shoulder tilt";
-    detail = "Your shoulders look less level than they did during calibration.";
-    tip = "Relax both shoulders and sit evenly. Avoid forcing them into position.";
-    penalty += Math.min(30, (tiltChange - 0.10) * 100);
-  }
 
-  const score = Math.max(40, Math.min(100, 100 - penalty));
-  if (issue) {
-    setStatus(issue, detail, score, tip);
-    if (!badSince) badSince = Date.now();
-    if (Date.now() - badSince > 5000) remind(issue);
+  say(title, detail, score, tip);
+  if (hasIssue) {
+    if (!poorSince) poorSince = Date.now();
+    if (Date.now() - poorSince >= 5000) remind(title);
   } else {
-    badSince = null;
-    setStatus("Looking steady", detail, score, tip);
+    poorSince = null;
+    lastVoice = "";
   }
 }
 
-let calibrationStartedAt = 0;
-function average(values) {
-  const valid = values.filter(v => Number.isFinite(v));
-  return valid.length ? valid.reduce((a, b) => a + b, 0) / valid.length : NaN;
-}
+function remind(title) {
+  if (Date.now() - lastAlert < 12000) return;
+  lastAlert = Date.now();
 
-function remind(issue) {
-  if (Date.now() - lastReminder < 12000) return;
-  lastReminder = Date.now();
-  if (document.getElementById("soundToggle").checked) {
+  if ($("soundToggle").checked) {
     try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      const audio = new AudioContextClass();
-      const oscillator = audio.createOscillator();
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const audio = new AudioCtx();
+      const osc = audio.createOscillator();
       const gain = audio.createGain();
-      oscillator.connect(gain);
+      osc.connect(gain);
       gain.connect(audio.destination);
-      oscillator.frequency.value = 660;
-      gain.gain.value = 0.07;
-      oscillator.start();
-      oscillator.stop(audio.currentTime + 0.16);
-      oscillator.onended = () => audio.close();
-    } catch (e) { console.warn("Audio reminder unavailable", e); }
+      osc.frequency.value = 590;
+      gain.gain.value = 0.055;
+      osc.start();
+      osc.stop(audio.currentTime + 0.18);
+      osc.onended = () => audio.close();
+    } catch (e) { console.warn("Sound unavailable", e); }
   }
-  if (document.getElementById("voiceToggle").checked && "speechSynthesis" in window && lastSpoken !== issue) {
+
+  if ($("voiceToggle").checked && "speechSynthesis" in window && lastVoice !== title) {
     speechSynthesis.cancel();
-    speechSynthesis.speak(new SpeechSynthesisUtterance("Check your posture and relax your shoulders."));
-    lastSpoken = issue;
+    speechSynthesis.speak(new SpeechSynthesisUtterance("Quick posture check. Relax your shoulders and get comfortable."));
+    lastVoice = title;
   }
 }
 
-function detectFrame() {
+function loop() {
   if (!running) return;
   if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
     lastVideoTime = video.currentTime;
-    ctx.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
     const result = landmarker.detectForVideo(video, performance.now());
-    if (result.landmarks && result.landmarks.length) {
-      analyze(result.landmarks[0]);
-    } else {
-      badSince = null;
-      setStatus("No person detected", "Move back into the camera frame so your face and shoulders are visible.", null, "Try improving the lighting and keeping your upper body in view.");
+    if (result.landmarks?.length) analyze(result.landmarks[0]);
+    else {
+      poorSince = null;
+      say("No person detected", "Move into the camera frame so your face and shoulders can be seen.");
     }
   }
-  rafId = requestAnimationFrame(detectFrame);
+  raf = requestAnimationFrame(loop);
 }
 
 startBtn.addEventListener("click", startCamera);
 stopBtn.addEventListener("click", stopCamera);
-calibrateBtn.addEventListener("click", () => {
-  calibrationSamples = [];
-  calibrating = true;
-  calibrationStartedAt = Date.now();
-  badSince = null;
-  message.textContent = "Sit in your normal comfortable upright position…";
+calibrateBtn.addEventListener("click", beginCalibration);
+modeSelect.addEventListener("change", () => {
+  calibration = null;
+  poorSince = null;
+  if (running) say("View changed", "Press Calibrate again for this camera angle.");
 });
 window.addEventListener("beforeunload", () => {
-  if (stream) stream.getTracks().forEach(track => track.stop());
+  if (stream) stream.getTracks().forEach(t => t.stop());
 });

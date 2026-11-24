@@ -1,77 +1,82 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PostureAI | Upper Body Posture Assistant</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PostureX — posture check</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main class="app">
-    <header class="topbar">
-      <div class="brand-mark">P</div>
-      <div>
-        <p class="eyebrow">REAL-TIME WELLNESS TOOL</p>
-        <h1>Posture<span>AI</span></h1>
-      </div>
-      <div class="live-pill"><i></i> LOCAL PROCESSING</div>
+  <main class="page">
+    <header class="header">
+      <a class="wordmark" href="#" aria-label="PostureX home"><span class="mark">px</span><span>posture<span class="x">x</span></span></a>
+      <span class="header-note">a small nudge to sit well</span>
     </header>
 
-    <section class="intro">
-      <div>
-        <p class="eyebrow">YOUR DESK COMPANION</p>
-        <h2>A little reminder<br>to sit comfortably.</h2>
-        <p class="subtext">Tracks your head and shoulders using your webcam. Your hips do not need to be in the frame.</p>
-      </div>
-      <div class="intro-note"><span>01</span><p>Frame your face<br>and shoulders</p></div>
+    <section class="welcome">
+      <p class="kicker">YOUR DESK-SIDE CHECK-IN</p>
+      <h1>How are you<br><em>sitting today?</em></h1>
+      <p class="intro-copy">A simple webcam-based posture reminder. No full-body shot needed — just keep your face and shoulders in view.</p>
     </section>
 
-    <section class="workspace">
-      <div class="camera-panel">
-        <div class="panel-heading">
-          <div><p class="eyebrow">CAMERA FEED</p><h3>Live posture view</h3></div>
-          <span id="cameraState" class="state-tag">CAMERA OFF</span>
+    <section class="layout">
+      <section class="camera-card">
+        <div class="card-top">
+          <div><p class="kicker">CAMERA</p><h2>Live view</h2></div>
+          <span class="camera-state" id="cameraState"><i></i> Not started</span>
         </div>
-        <div class="camera-wrap" id="cameraWrap">
-          <video id="video" autoplay playsinline muted></video>
+        <div class="viewfinder" id="viewfinder">
+          <video id="video" autoplay muted playsinline></video>
           <canvas id="overlay"></canvas>
-          <div class="camera-placeholder" id="placeholder">
-            <div class="camera-icon">⌁</div>
-            <p>Your camera preview will appear here</p>
-            <small>Keep your face and shoulders visible</small>
+          <div class="placeholder" id="placeholder">
+            <div class="camera-symbol">⌁</div>
+            <strong>Your camera goes here</strong>
+            <span>Frame your face and shoulders</span>
           </div>
-          <div class="camera-hint">UPPER BODY MODE · HIPS NOT REQUIRED</div>
+          <span class="view-label">POSTUREX · LIVE</span>
         </div>
-        <div class="camera-actions">
-          <button id="startBtn" class="primary-btn">Start camera <span>↗</span></button>
-          <button id="stopBtn" class="secondary-btn" disabled>Stop</button>
-          <button id="calibrateBtn" class="secondary-btn" disabled>Calibrate posture</button>
+        <div class="controls">
+          <label class="mode-label" for="viewMode">Camera position</label>
+          <select id="viewMode">
+            <option value="front">Front view</option>
+            <option value="side">Side view</option>
+          </select>
+          <button class="button button-main" id="startBtn">Start camera</button>
+          <button class="button button-light" id="stopBtn" disabled>Stop</button>
+          <button class="button button-light" id="calibrateBtn" disabled>Calibrate</button>
         </div>
-        <p class="small-note" id="message">Allow camera access when your browser asks.</p>
-      </div>
+        <p class="helper" id="message">Choose how your camera is placed, then start. You can change the view mode any time.</p>
+      </section>
 
-      <aside class="insights">
-        <div class="panel-heading"><div><p class="eyebrow">LIVE ANALYSIS</p><h3>Your posture</h3></div><span class="pulse-dot"></span></div>
-        <div class="status-card" id="statusCard">
-          <p class="eyebrow">CURRENT STATUS</p>
-          <h2 id="statusText">Waiting</h2>
-          <p id="statusDetail">Start the camera to begin checking your upper-body posture.</p>
-        </div>
-        <div class="score-block">
-          <div class="score-head"><span>Posture score</span><strong><span id="score">--</span><small>/100</small></strong></div>
-          <div class="score-track"><div id="scoreBar"></div></div>
-          <p class="small-note">An estimate based on your calibrated head and shoulder position.</p>
-        </div>
-        <div class="tip-card">
-          <span class="tip-icon">✳</span>
-          <div><strong>Quick reminder</strong><p id="tipText">Sit in a comfortable, relaxed position, then calibrate.</p></div>
-        </div>
-        <label class="toggle-row"><span><strong>Voice feedback</strong><small>Speak a short reminder</small></span><input type="checkbox" id="voiceToggle" checked><i></i></label>
-        <label class="toggle-row"><span><strong>Warning sound</strong><small>After 5 seconds of poor posture</small></span><input type="checkbox" id="soundToggle" checked><i></i></label>
+      <aside class="side-column">
+        <section class="result-card">
+          <div class="card-top">
+            <div><p class="kicker">POSTURE CHECK</p><h2>Right now</h2></div>
+            <span class="tiny-star">✳</span>
+          </div>
+          <div class="result-main">
+            <span class="result-label">YOUR STATUS</span>
+            <h3 id="statusText">Waiting for camera</h3>
+            <p id="statusDetail">Start the camera and calibrate in a comfortable position.</p>
+          </div>
+          <div class="score-row"><span>Posture score</span><strong><span id="score">—</span><small>/100</small></strong></div>
+          <div class="meter"><span id="scoreBar"></span></div>
+          <p class="helper score-note">A simple estimate based on your own starting position — not a medical measurement.</p>
+        </section>
+
+        <section class="note-card">
+          <p class="kicker">A QUICK TIP</p>
+          <p id="tipText">Sit how you normally would when you're comfortable, then press Calibrate.</p>
+        </section>
+
+        <section class="settings">
+          <label class="setting"><span><strong>Voice reminder</strong><small>Say a short posture tip</small></span><input type="checkbox" id="voiceToggle" checked></label>
+          <label class="setting"><span><strong>Sound reminder</strong><small>After 5 seconds of a detected change</small></span><input type="checkbox" id="soundToggle" checked></label>
+        </section>
       </aside>
     </section>
 
-    <footer><span>POSTUREAI · STUDENT AI PROJECT</span><span>Camera frames are processed in this browser.</span></footer>
+    <footer><span>POSTUREX</span><span>Made for everyday desk breaks · Camera stays in your browser</span></footer>
   </main>
   <script type="module" src="script.js"></script>
 </body>

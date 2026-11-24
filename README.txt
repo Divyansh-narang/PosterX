@@ -1,24 +1,32 @@
-POSTUREAI — UPPER BODY VERSION
+POSTUREX — UPPER-BODY POSTURE REMINDER
 
-WHAT CHANGED
-- The detection logic does not require hip landmarks (23 and 24).
-- It uses the face and shoulder landmarks instead.
-- Keep your face and both shoulders visible in the camera.
-- The system compares your current position with a short personal calibration.
-- It can give reminders after 5 seconds when it notices a change from that baseline.
+FILES
+- index.html
+- style.css
+- script.js
 
-HOW TO RUN
-1. Put index.html, style.css and script.js in the same folder.
+RUN LOCALLY
+1. Keep all three files in the same folder.
 2. Open the folder in VS Code.
-3. Run index.html using the Live Server extension, or deploy the files to GitHub Pages.
+3. Run index.html using Live Server.
 4. Allow camera permission.
-5. Sit comfortably and click "Calibrate posture".
+5. Select Front view or Side view.
+6. Sit comfortably and press Calibrate.
 
-IMPORTANT
-This is an educational posture-estimation project, not a medical device.
-Without hips or a side-view reference, it cannot reliably assess full-spine,
-lower-back, or whole-body alignment. The score is an approximate visual
-indicator based on face/shoulder landmarks and the user's calibration.
+CAMERA POSITION
+- Front view: keep your face and both shoulders visible.
+- Side view: keep your nearer ear, face and shoulder visible.
+- Hips are not required in either mode.
 
-If GPU model loading fails on a device, change delegate: "GPU" to delegate: "CPU"
-in script.js and try again. Camera access generally requires HTTPS or localhost.
+IMPORTANT LIMITATIONS
+This is a student demonstration project, not a medical device. It estimates
+changes from the position captured during calibration. Front view focuses on
+head centering and shoulder tilt. Side view estimates forward-head movement.
+It cannot reliably assess the whole spine, lower back, or diagnose posture
+conditions. Camera angle, lighting, clothing and landmark detection affect
+the result. Recalibrate if you change your camera position.
+
+GITHUB PAGES
+Upload index.html, style.css and script.js to the root of your repository.
+Commit the files, then enable Settings > Pages > Deploy from a branch >
+main > /(root). The first deployment may take a few minutes.
